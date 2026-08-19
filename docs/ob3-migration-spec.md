@@ -146,12 +146,12 @@ Points de spec vérifiés qui pilotent nos choix :
   minimum imposé**, payload dupliquant `iss`/`sub`/`nbf`/`jti`/`exp` depuis le credential) et
   **Linked Data Proof** (preuve imbriquée `DataIntegrityProof`, conformance « currently limited to the
   Data Integrity EdDSA Cryptosuites v1.0 suite », cryptosuite `eddsa-rdfc-2022`).
-- Dépréférencement de clé (§8.5) : le vérifieur résout la clé publique depuis une URI — URL HTTP
+- Déréférencement de clé (§8.5) : le vérifieur résout la clé publique depuis une URI — URL HTTP
   ou DID URL ; seul le support HTTP est exigé des vérifieurs.
 - Format de fichier (§5.1/5.2) : credential à preuve imbriquée servi en JSON,
   `Content-Type: application/vc+ld+json` recommandé (`application/json` toléré) ; VC-JWT servi en
   `text/plain` (Compact JWS). Le baking PNG/SVG existe en OB 3.0 (§5.3) mais reste optionnel.
-- Guide de certification 1EdTech (v1.3, 2025-12-12) : pour le rôle **Issuer**, les mécanismes de
+- Guide de certification 1EdTech (v1.5, 2026-06-15) : pour le rôle **Issuer**, les mécanismes de
   preuve supportés par la suite de conformité sont `eddsa-rdfc-2022` et `ecdsa-sd-2023` (Data
   Integrity) ; le test consiste à émettre un badge valide à `conformance@imsglobal.org`. Les
   credentials doivent passer la validation JSON-LD « safe mode ».
@@ -202,6 +202,14 @@ plusieurs preuves) — hors périmètre initial.
   parce que c'est le format le mieux compris des wallets VC, pour un coût marginal (~un handler
   statique). Si la résolution did:web pose problème avec un vérifieur donné, le repli est mécanique
   (même document servi sous une URL HTTPS).
+- **Séquencement (amendé en relecture)** : le support did:web du validateur public est une inconnue
+  qu'il ne faut pas découvrir en fin de parcours. L'étape 1 du rollout inclut donc un **spike de
+  dé-risquage** : signer un credential jetable avec `verificationMethod: did:web:<domaine-test>#key-0`
+  et le passer à vc.1ed.tech. Critère de sortie de l'étape 1 : si la résolution did:web échoue, on
+  bascule *avant l'étape 2* sur la clé en URL HTTPS (controller document servi par l'API) comme
+  primaire, did:web devenant un simple alias ajouté plus tard. On garde did:web en cible parce que
+  le repli est mécanique et le spike coûte ~0,5 j ; l'inverse (HTTPS d'abord, did:web ensuite)
+  changerait la `verificationMethod` des credentials déjà émis entre les deux étapes.
 - **Attention multi-tenant :** la clé et le DID sont par *déploiement* (domaine API), pas par
   `system`/`issuer` BadgeKit. Tous les systems d'une instance signent avec la même clé ; leurs
   identités « métier » restent dans le `Profile` imbriqué. C'est assumé pour la v1.
@@ -249,10 +257,28 @@ plusieurs preuves) — hors périmètre initial.
 2. Manuellement à chaque jalon : le validateur public 1EdTech (`https://vc.1ed.tech`, code source
    `1EdTech/digital-credentials-public-validator`) — il vérifie la signature `eddsa-rdfc-2022`, pas
    seulement la forme.
-3. La **certification** officielle (suite hébergée sur `certification.imsglobal.org` : émettre un
+3. La **certification** officielle (guide v1.5 ; suite hébergée sur `certification.imsglobal.org` : émettre un
    badge à `conformance@imsglobal.org` + vidéo du parcours récipiendaire) exige d'être membre
    1EdTech : on vise la *conformité testée par le validateur public*, la certification est une
    décision produit/budget séparée.
+
+### D7 — Credential figé vs BadgeClass mutable
+
+Problème (soulevé en relecture) : aujourd'hui, éditer un badge (nom, critères, image) se propage
+instantanément — les trois documents 1.x sont générés à la volée à chaque GET. Un credential signé
+est un **instantané** : les édits ne s'y propagent plus, et l'URL `achievement.id` continuera de
+servir un JSON 1.x qui peut contredire la copie signée détenue par le récipiendaire.
+
+| Option | Verdict |
+|---|---|
+| **(a) Accepter la divergence** — le credential est un instantané au moment de l'émission | **Recommandé.** C'est le modèle VC standard (les claims sont datés par `validFrom`/`awardedDate`) ; la spec OB 3.0 assume ce versioning (elle utilise `issuer`+`id`+`validFrom` pour départager les versions d'un credential et a créé `awardedDate` précisément pour ça) |
+| (b) Re-signer à l'édition | Illusoire : les copies déjà téléchargées (wallets, fichiers) ne sont pas rappelables — on créerait des versions concurrentes du même `id` sans faire disparaître les anciennes ; et on perd la stabilité binaire de la preuve persistée (§5.2) |
+| (c) Geler le badge dès la première émission | Le plus sûr mais bloque les corrections légitimes (typo) ; exige verrouillage UI + API, friction disproportionnée |
+
+**Recommandation : (a)**, encadré par une convention d'équipe à documenter côté front : correction
+mineure (typo, reformulation) tolérée ; changement **substantiel** (critères, nom, signification,
+image) ⇒ **nouveau badge** (nouveau slug, donc nouvel `achievement.id`). La doc précisera que le JSON
+1.x servi par `achievement.id` est informatif : la copie signée fait foi pour ce qui a été décerné.
 
 ---
 
@@ -295,6 +321,13 @@ plusieurs preuves) — hors périmètre initial.
       "image": { "id": "http://localhost:8080/images/ob3-demo.png", "type": "Image" }
     }
   },
+  "credentialStatus": {
+    "id": "https://badges.example.org/public/credentials/status/0#1",
+    "type": "BitstringStatusListEntry",
+    "statusPurpose": "revocation",
+    "statusListIndex": "1",
+    "statusListCredential": "https://badges.example.org/public/credentials/status/0"
+  },
   "credentialSchema": [{
     "id": "https://purl.imsglobal.org/spec/ob/v3p0/schema/json/ob_v3p0_achievementcredential_schema.json",
     "type": "1EdTechJsonSchemaValidator2019"
@@ -309,6 +342,10 @@ plusieurs preuves) — hors périmètre initial.
   }]
 }
 ```
+
+Note : les URLs `http://localhost:8080` de cet exemple sont les valeurs brutes telles que capturées
+sur la stack locale (§2.2) ; les URLs `badges.example.org` / `did:web:badges.example.org` illustrent
+ce que donnerait un déploiement sur un domaine public — en production tout porterait le même domaine.
 
 Règles de mapping (mêmes sources de données que `makeAssertion`/`makeBadgeClass`/`makeIssuerOrganization`) :
 
@@ -326,6 +363,7 @@ Règles de mapping (mêmes sources de données que `makeAssertion`/`makeBadgeCla
 | `achievement.image` | URL absolue de l'image (corriger le bug §2.3.5 au passage) |
 | `achievement.alignment[]` | `badge.alignments` (`targetName`, `targetUrl`, `targetDescription`) |
 | `identifier[0]` | email + sel stocké (§5.3) |
+| `credentialStatus.statusListIndex` | `instance.id` (auto-incrément — index stable dans la bitstring) |
 
 ### 5.2 Endpoints ajoutés
 
@@ -333,6 +371,7 @@ Règles de mapping (mêmes sources de données que `makeAssertion`/`makeBadgeCla
 |---|---|---|
 | `GET /public/credentials/:instanceSlug` | credential signé, `Content-Type: application/vc+ld+json` | 404 si instance supprimée (même sémantique que l'assertion) ; le credential signé est **persisté** à l'émission (pas re-signé à chaque GET) pour garantir la stabilité binaire de la preuve |
 | `GET /.well-known/did.json` | DID document did:web | statique, généré depuis la clé publique configurée |
+| `GET /public/credentials/status/0` | `BitstringStatusListCredential` signé | v1 : bitstring statique « tout à zéro » (≥ 16 Ko décompressé, soit 131 072 entrées — minimum imposé par la spec Bitstring Status List), signée une fois et mise en cache ; voir §9 pour la logique de réservation |
 
 Modification (additive) : `POST …/instances` et webhooks gagnent `credentialUrl`.
 
@@ -357,8 +396,9 @@ Une migration `badgeInstances` (mécanisme existant `app/lib/migrations.js`) :
 - **Rotation** : nouvelle clé = nouvel id `#key-1` ; les anciennes clés **restent** dans le DID
   document (les credentials déjà émis référencent leur `verificationMethod` d'origine et doivent
   rester vérifiables) ; les nouvelles émissions signent avec la clé courante. Une clé compromise est
-  retirée du DID document — ce qui invalide de fait les credentials qu'elle a signés (assumé ;
-  la vraie réponse est une status list, hors scope §9).
+  retirée du DID document — ce qui invalide de fait les credentials qu'elle a signés (assumé en v1 ;
+  l'entrée `credentialStatus` réservée dès l'émission (§9) permettra, une fois le flip des bits
+  implémenté, de révoquer proprement les credentials concernés avant de retirer la clé).
 - **Dev local** : clé de dev committée nulle part ; `seed.sh` étendu pour en générer une jetable.
 
 ---
@@ -370,19 +410,21 @@ derrière la relecture de cette spec. Sizing : S ≈ ≤ 1 j, M ≈ 2-3 j, L ≈
 
 | Étape | Contenu | Sizing |
 |---|---|---|
-| **0. Validation de la spec** | Relecture humaine, gel des décisions D1-D6 | S |
-| **1. Clés + did:web** | Script de génération, config `ISSUER_SIGNING_KEY`/`ISSUER_DID`, route `/.well-known/did.json`, compose mis à jour, tests | M |
+| **0. Validation de la spec** | Relecture humaine, gel des décisions D1-D7 | S |
+| **1. Clés + did:web + spike validateur** | Script de génération, config `ISSUER_SIGNING_KEY`/`ISSUER_DID`, route `/.well-known/did.json`, compose mis à jour, tests. **Spike de dé-risquage (D3)** : un credential jetable signé avec `verificationMethod` did:web sur un domaine de test, passé à vc.1ed.tech ; critère de sortie : did:web confirmé, ou bascule sur l'URL HTTPS de clé avant l'étape 2 | M |
 | **2. Builder de credential** | Fonction pure instance→credential (mapping §5.1), migration DB (`salt`, `credential`), validation contre le schéma JSON officiel dans les tests | M |
-| **3. Signature + route publique** | Intégration `@digitalbazaar/vc` (`eddsa-rdfc-2022`), persistance du credential signé à l'émission, `GET /public/credentials/:slug`, `credentialUrl` dans réponses/webhooks | M-L |
-| **4. Validation externe** | Passage du validateur public `vc.1ed.tech` sur des credentials émis par la stack locale (dev + un domaine public de test pour la résolution did:web), corrections, page de doc dans `badgekit-stack/docs` | M |
-| **5. (optionnel, plus tard)** | VC-JWT en export secondaire, baking §5.3, `credentialStatus`/BitstringStatusList, certification 1EdTech | hors scope, non chiffré |
+| **3. Signature + route publique** | Intégration `@digitalbazaar/vc` (`eddsa-rdfc-2022`) avec **documentLoader épinglé** : contextes JSON-LD (`credentials/v2`, `context-3.0.3.json`) **vendorés dans le repo** et DID document résolu localement — jamais de résolution réseau à l'émission (pratique standard @digitalbazaar/vc, et mitigation directe du risque « safe mode » ci-dessous). Persistance du credential signé à l'émission, `GET /public/credentials/:slug`, **réservation `credentialStatus`** (entrée BitstringStatusListEntry + route status list statique signée, §9), `credentialUrl` dans réponses/webhooks | L |
+| **4. Validation externe** | Passage du validateur public `vc.1ed.tech` sur des credentials émis par la stack complète (confirmation de bout en bout du spike de l'étape 1, cette fois avec les vrais credentials), corrections, page de doc dans `badgekit-stack/docs` | M |
+| **5. (optionnel, plus tard)** | VC-JWT en export secondaire, baking §5.3, révocation opérationnelle (flip des bits de la status list réservée à l'étape 3 — simple, puisque l'entrée existe déjà dans chaque credential), certification 1EdTech | hors scope, non chiffré |
 
-Total cœur (étapes 1-4) : **~8-12 jours-dev**. Risque principal : la canonicalisation JSON-LD en
-« safe mode » (tout terme doit être défini par les contextes) — d'où la validation schéma + validateur
-public dès l'étape 2/4, pas à la fin.
+Total cœur (étapes 1-4) : **~9-13 jours-dev**. Risque principal : la canonicalisation JSON-LD en
+« safe mode » (tout terme doit être défini par les contextes) — mitigé par le documentLoader épinglé
+de l'étape 3 (contextes vendorés = pas de dérive ni de dépendance réseau) et par la validation
+schéma + validateur public dès l'étape 2/4, pas à la fin.
 
-Dépendances : aucune sur le front ; l'étape 4 nécessite un domaine HTTPS public pour valider la
-résolution did:web de bout en bout (le validateur ne résoudra pas `did:web:localhost%3A8080`).
+Dépendances : aucune sur le front ; le **spike de l'étape 1** nécessite déjà un domaine HTTPS public
+pour la résolution did:web (le validateur ne résoudra pas `did:web:localhost%3A8080`) — c'est voulu :
+l'inconnue did:web se lève au début du chantier, pas à la fin.
 
 ---
 
@@ -393,7 +435,7 @@ résolution did:web de bout en bout (le validateur ne résoudra pas `did:web:loc
 2. **Validateur public 1EdTech** (étapes 3-4) : `https://vc.1ed.tech` — vérifie structure, contextes,
    *et* la preuve `eddsa-rdfc-2022`. Auto-hébergeable si besoin
    (`github.com/1EdTech/digital-credentials-public-validator`).
-3. **Suite de conformité / certification** (`certification.imsglobal.org`, guide v1.3) : test Issuer =
+3. **Suite de conformité / certification** (`certification.imsglobal.org`, guide v1.5) : test Issuer =
    émettre un badge valide à `conformance@imsglobal.org` + vidéo du parcours de récupération.
    Nécessite l'adhésion 1EdTech → décision séparée, non bloquante pour émettre du 3.0 valide.
 4. **Contre-vérification indépendante** : vérifier un credential émis avec une lib tierce
@@ -420,10 +462,19 @@ résolution did:web de bout en bout (le validateur ne résoudra pas `did:web:loc
   upsertCredential, dynamic client registration) est un rôle « Service Provider » entier — non requis
   pour émettre des credentials valides.
 - **DID récipiendaire** : `credentialSubject.id` restera absent ; email hashé seulement (D4).
-- **Révocation avancée** : pas de `credentialStatus` / BitstringStatusList / 1EdTech Revocation List
-  en v1. La suppression d'instance rend l'URL 404, mais **une copie signée déjà téléchargée reste
-  vérifiable** — c'est une régression sémantique par rapport au hosted 1.x qu'il faut annoncer
-  honnêtement ; la status list est la réponse propre, planifiée mais non incluse.
+- **Révocation opérationnelle** : la suppression d'instance rend l'URL 404, mais **une copie signée
+  déjà téléchargée reste vérifiable** — régression sémantique par rapport au hosted 1.x, à annoncer
+  honnêtement. Point amendé en relecture : différer entièrement `credentialStatus` ne serait **pas
+  additif** — un credential signé sans `credentialStatus` est irrévocable *à vie* (le rétrofit
+  changerait le `proofValue`, donc produirait un autre credential, sans rappeler les copies déjà
+  émises). Deux options : (a) **réserver dès la v1** une entrée `BitstringStatusListEntry`
+  (`statusPurpose: "revocation"`, `statusListIndex` = id d'instance) pointant vers une
+  `BitstringStatusListCredential` statique « tout à zéro » signée par l'API (une route + un champ,
+  §5.2) ; (b) assumer explicitement que tous les credentials v1 sont irrévocables pour toujours.
+  **Recommandation : (a)** — le coût est faible (la liste est un VC signé une fois, ≥ 131 072 entrées),
+  et la révocation *effective* (flipper un bit à la suppression) devient un incrément trivial de
+  l'étape 5 au lieu d'un re-signage impossible du parc. Ce qui reste hors scope v1 : le flip effectif
+  des bits, la suspension, et 1EdTech Revocation List.
 - **Baking PNG/SVG** (OB 3.0 §5.3) : on n'en fait pas aujourd'hui en 1.x, on n'en fera pas en v1.
 - **Endorsements, refreshService, termsOfUse, evidence, résultats/rubrics, CLR** : non mappés (pas de
   données sources dans BadgeKit).
@@ -439,8 +490,14 @@ Toutes consultées le 2026-08-19 :
 - Spec Open Badges 3.0 (1EdTech, Final, doc v1.4.5) : https://www.imsglobal.org/spec/ob/v3p0
   — modèle `AchievementCredential`/`AchievementSubject`/`Achievement`/`Profile`/`IdentityObject`
   (annexe B.1), preuves §8 (VC-JWT RS256 min, LDP `eddsa-rdfc-2022`), formats §5, exemples annexe D.
-- Guide de certification OB 3.0 (v1.3, 2025-12-12) : https://www.imsglobal.org/spec/ob/v3p0/cert
+- Guide de certification OB 3.0 (v1.5, 2026-06-15) : https://www.imsglobal.org/spec/ob/v3p0/cert
   — mécanismes de preuve supportés Issuer/Displayer, procédure de test, JSON-LD safe mode.
+  (La première version de cette spec citait « v1.3, 2025-12-12 » — corrigé en relecture, le fond
+  est inchangé : Data Integrity seul listé pour la certification Issuer.)
+- W3C Bitstring Status List v1.0 (Recommendation, 15 mai 2025) :
+  https://www.w3.org/TR/vc-bitstring-status-list/ — `BitstringStatusListEntry`
+  (`statusPurpose`/`statusListIndex`/`statusListCredential`), liste publiée comme VC signé
+  (`encodedList`), bitstring décompressé ≥ 16 Ko.
 - W3C Verifiable Credentials Data Model v2.0 (Recommendation, 15 mai 2025) :
   https://www.w3.org/TR/vc-data-model-2.0/ — `@context` de base, `validFrom`/`validUntil`,
   mécanismes de sécurisation (VC-JOSE-COSE vs Data Integrity), `credentialStatus`.
@@ -467,5 +524,7 @@ Toutes consultées le 2026-08-19 :
 2. D3 : le domaine public cible pour `did:web` (et donc l'URL canonique des credentials) — lequel ?
 3. §5.3 : persister le credential signé en base (recommandé) vs re-signer à chaque GET — un avis
    contraire ?
-4. La régression « révocation » (§9) est-elle acceptable en v1 pour nos cas d'usage ?
+4. Révocation (§9) : valider la réservation `credentialStatus` dès la v1 (option (a), recommandée) —
+   ou assumer explicitement que les credentials v1 sont **irrévocables à vie** (option (b)) ?
+   Différer sans réserver n'est pas une option neutre.
 5. Faut-il corriger le bug d'URL d'image (§2.3.5) dans une PR séparée avant l'étape 2 ?
