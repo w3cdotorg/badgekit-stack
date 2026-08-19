@@ -158,11 +158,18 @@ docker compose up -d --build api
 curl -s http://localhost:8080/.well-known/did.json   # -> 200 with the dev key
 ```
 
-Re-running `./gen-dev-key.sh` rotates the key (idempotent — it replaces the
-previous `ISSUER_DID`/`ISSUER_SIGNING_KEY` lines in `.env` rather than
-appending duplicates). Pass a DID to target a different domain, e.g. a
-disposable `cloudflared` tunnel hostname for external-validator testing
-(see `docs/ob3-spike-report.md`):
+Re-running `./gen-dev-key.sh` **replaces** the key — it's idempotent in the
+sense that it overwrites the previous `ISSUER_DID`/`ISSUER_SIGNING_KEY` lines
+in `.env` rather than appending duplicates, but it is not a "rotation" in
+the sense of keeping the old key valid alongside the new one. On a real
+domain that has already signed credentials, replacing the key invalidates
+every one of them (their `proof.verificationMethod` stops resolving to
+anything in the current `did.json`). True key rotation — serving multiple
+valid keys from `did.json` at once — isn't implemented yet; see
+`docs/ob3-operations.md` (§4) for the full explanation and what's tracked
+for the Q2 flip. On the throwaway local/test domain this is harmless — pass
+a DID to target a different domain, e.g. a disposable `cloudflared` tunnel
+hostname for external-validator testing (see `docs/ob3-spike-report.md`):
 
 ```sh
 ./gen-dev-key.sh 'did:web:<random>.trycloudflare.com'
@@ -172,6 +179,16 @@ docker compose up -d --build api
 
 Per the project's test-domain-only policy, never point `ISSUER_DID` at a
 real/production domain from this dev stack.
+
+Once a credential is signed, editing the underlying badge does **not**
+update it — see `docs/ob3-operations.md` for the full operations reference:
+the team convention for editing badges after credentials have been signed
+against them (§1), exactly what moment gets snapshotted into a signed
+credential and what doesn't (§2, it's the first `GET`, not the award — an
+edit landing between the two still gets signed in), the step-by-step runbook
+for moving `PUBLIC_BASE_URL`/`ISSUER_DID` to a new domain without corrupting
+already-issued credentials (§3), and the honest state of key "rotation"
+(§4 — `gen-dev-key.sh` replaces the key, it does not rotate it).
 
 ### Issuing a demo credential
 
