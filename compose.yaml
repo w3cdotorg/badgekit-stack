@@ -1,0 +1,49 @@
+services:
+  mysql:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    ports: ["3306:3306"]
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      retries: 20
+
+  api:
+    build: ../badgekit-api
+    environment:
+      DB_HOST: mysql
+      DB_USER: badges
+      DB_PASSWORD: badges
+      DB_NAME: badgekit
+      MASTER_SECRET: devsecret
+    ports: ["8080:8080"]
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  web:
+    build: ../openbadges-badgekit
+    environment:
+      DATABASE_HOST: mysql
+      DATABASE_USER: badgekit
+      DATABASE_PASSWORD: badgekit
+      DATABASE_DATABASE: badgekit_web
+      COOKIE_SECRET: dev-cookie-secret
+      OPENBADGER_SECRET: devsecret
+      OPENBADGER_URL: http://api:8080
+      BADGEKIT_API_URL: http://api:8080
+      OPENBADGER_SYSTEM: wooclap
+      ACCESS_LIST: '["*"]'
+      API_SECRET: dev-api-secret
+      PERSONA_AUDIENCE: http://localhost:3001
+    ports: ["3001:3000"]
+    depends_on:
+      mysql: { condition: service_healthy }
+      api: { condition: service_healthy }
+
+volumes:
+  mysql-data:
