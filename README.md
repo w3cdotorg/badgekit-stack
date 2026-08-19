@@ -9,8 +9,8 @@ OIDC auth mode (`AUTH_MODE=oidc`), backed by a local Keycloak service — see
 ```
 mozilla/
 ├── badgekit-stack/          (this repo)
-├── badgekit-api/            (backend, branch phase-1-docker-stack)
-└── openbadges-badgekit/     (front, branch phase-1-docker-stack)
+├── badgekit-api/            (backend)
+└── openbadges-badgekit/     (front)
 ```
 
 Both app repos have been modernized (see the commit "Modernize dependencies to
@@ -40,8 +40,12 @@ gymnastics. `docker compose up` brings up:
 expects, signing a JWT with the shared `MASTER_SECRET`. It's idempotent: a
 second run returns a 409 / `ResourceConflict` instead of erroring.
 
-Once seeded, open http://localhost:3001 → "Log In" asks for an email (dev
-auth — see "Points d'attention" below).
+Once seeded, open http://localhost:3001 → "Log In" prompts for an email
+address with **no verification** — that's `AUTH_MODE=dev`, the stack's
+default (see "Points d'attention" below), and it's what you get out of the
+box with no further setup. Real-IdP login (`AUTH_MODE=oidc`, backed by the
+local Keycloak service) is a documented opt-in, not the default — see
+"Keycloak / OIDC login" below to enable it.
 
 ## Verify
 
@@ -71,22 +75,27 @@ volume) started with `start-dev --import-realm` against this exact file logs
 `http://localhost:8180/realms/badgekit/.well-known/openid-configuration`
 resolves immediately after.
 
-The front's `web` service ships the matching `AUTH_MODE=oidc` / `OIDC_*` env
-block in `compose.yaml`, but **the `web` container is not restarted to use
-it** — see the network caveat below. To actually exercise the OIDC flow:
+`compose.yaml`'s `web` service defaults to `AUTH_MODE: dev` (see above) and
+ships the matching `AUTH_MODE=oidc` / `OIDC_*` env block **commented out**
+right below it — `docker compose up` on its own never talks to Keycloak for
+auth. That's deliberate: `OIDC_ISSUER: http://localhost:8180/...` is only
+reachable from the *host* by default, and inside the `web` container
+`localhost` means the container itself, not the host running Keycloak's
+published port — so shipping that block active-by-default would boot into a
+login that can't work. There are two working ways to actually exercise OIDC:
 
 **Caveat réseau** — the OIDC redirects (`authorization_endpoint`, etc.) are
 followed by the *browser*, not just the container, so `OIDC_ISSUER` must
 resolve identically for both. `http://keycloak:8080` (the compose network
-name) works for the `web` container's server-to-server discovery call but is
-unreachable from the host browser; `http://localhost:8180` (the published
-port) is reachable from the browser but not from inside another container
-unless that container also gets `localhost` routed to the host (e.g.
-`extra_hosts: ["localhost:host-gateway"]` on `web`). The simplest way to test
-today, and the way this was actually validated, is to run the front **outside
-Docker** on the host (`AUTH_MODE=oidc node app`, port 3001) with Keycloak
-still dockerized on `:8180` — both the Node process and the browser then
-resolve `localhost:8180` identically:
+name) would work for the `web` container's server-to-server discovery call
+but is unreachable from the host browser; `http://localhost:8180` (the
+published port) is reachable from the browser but not from inside another
+container unless that container also gets `localhost` routed to the host.
+
+**Option A — run the front on the host** (the way this was actually
+validated). Keycloak stays dockerized on `:8180`; the front runs as a plain
+Node process on the host, so both the Node process and the browser resolve
+`localhost:8180` identically:
 
 ```sh
 cd ../openbadges-badgekit
@@ -99,12 +108,23 @@ export OIDC_REDIRECT_URI=http://localhost:3001/auth/callback
 node app
 ```
 
-Then open http://localhost:3001, click "Log In", authenticate as
-`dev@wooclap.com` / `dev` on the Keycloak login page, and land back on
-`/directory` logged in (header shows the email). Logging out (the header's
-"Logout" link) clears the session and returns to the logged-out home page —
-a direct hit on `/directory` afterwards redirects to `/`, confirming the
-server-side session was actually reset, not just the UI.
+**Option B — run the front in-container**, by uncommenting *both* the
+`AUTH_MODE: oidc` / `OIDC_*` block and the `extra_hosts: ["localhost:host-gateway"]`
+line under the `web` service in `compose.yaml`, then `docker compose up -d
+--build web`. `host-gateway` routes the container's `localhost` to the
+Docker host, so `OIDC_ISSUER=http://localhost:8180/...` then resolves
+identically for the `web` container's server-to-server discovery call and
+for the host browser — no other changes needed, since the client
+ID/secret/redirect URI in that block already match the `badgekit-web`
+Keycloak client.
+
+Either way, once the front is running with `AUTH_MODE=oidc`: open
+http://localhost:3001, click "Log In", authenticate as `dev@wooclap.com` /
+`dev` on the Keycloak login page, and land back on `/directory` logged in
+(header shows the email). Logging out (the header's "Logout" link) clears
+the session and returns to the logged-out home page — a direct hit on
+`/directory` afterwards redirects to `/`, confirming the server-side session
+was actually reset, not just the UI.
 
 `ACCESS_LIST` is locked to `'["*@wooclap.com"]'` (see below) — `dev@wooclap.com`
 matches it, so this flow works unmodified.
@@ -125,10 +145,13 @@ matches it, so this flow works unmodified.
   during initial bring-up) — only that domain can authenticate past the
   `verifyPermission` middleware, in dev-persona mode as well as OIDC.
 - w3cdotorg/mozilla-persona was not used: self-hosting Persona (a
-  multi-service Node 0.10 stack) wasn't realistic in a day, so the dev
-  bypass (`app/lib/dev-persona.js`) is used instead. Auth: Mozilla Persona
-  died in 2016; setting `USE_PERSONA=true` switches back to the original
-  Persona client for a self-hosted Persona instance.
+  multi-service Node 0.10 stack) wasn't realistic in a day, and Mozilla
+  Persona itself was shut down in 2016. The Persona-backed auth code
+  (`express-persona-observer`) was removed entirely in a later phase; the
+  front now only supports two auth modes, chosen via `AUTH_MODE`: `dev`
+  (default — an unverified email prompt, `app/lib/dev-persona.js`) or
+  `oidc` (a real IdP, `app/lib/oidc-auth.js`, see "Keycloak / OIDC login"
+  above). There is no `USE_PERSONA` toggle and no path back to Persona.
 - The driver `mysql` (2.x) doesn't support `caching_sha2_password`, hence
   `--default-authentication-plugin=mysql_native_password` on the MySQL
   service and `mysql_native_password` users in `init.sql`.

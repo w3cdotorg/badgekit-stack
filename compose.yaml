@@ -26,6 +26,7 @@ services:
   api:
     build: ../badgekit-api
     environment:
+      NODE_ENV: development
       DB_HOST: mysql
       DB_USER: badges
       DB_PASSWORD: badges
@@ -38,6 +39,7 @@ services:
   web:
     build: ../openbadges-badgekit
     environment:
+      NODE_ENV: development
       DATABASE_HOST: mysql
       DATABASE_USER: badgekit
       DATABASE_PASSWORD: badgekit
@@ -50,12 +52,22 @@ services:
       ACCESS_LIST: '["*@wooclap.com"]'
       API_SECRET: dev-api-secret
       PERSONA_AUDIENCE: http://localhost:3001
-      AUTH_MODE: oidc
-      OIDC_ISSUER: http://localhost:8180/realms/badgekit
-      OIDC_CLIENT_ID: badgekit-web
-      OIDC_CLIENT_SECRET: ZrtXW6GRXZSquN6cN1QURy5Lu7g6dpJk
-      OIDC_REDIRECT_URI: http://localhost:3001/auth/callback
+      # Default: unverified dev email prompt. Works in-container out of
+      # the box, since it needs no IdP round trip. See the README's
+      # "Keycloak / OIDC login" section for the real-IdP opt-in and the
+      # two ways to make `OIDC_ISSUER` resolve identically for both the
+      # container and the browser.
+      AUTH_MODE: dev
+      # AUTH_MODE: oidc
+      # OIDC_ISSUER: http://localhost:8180/realms/badgekit
+      # OIDC_CLIENT_ID: badgekit-web
+      # OIDC_CLIENT_SECRET: ZrtXW6GRXZSquN6cN1QURy5Lu7g6dpJk
+      # OIDC_REDIRECT_URI: http://localhost:3001/auth/callback
     ports: ["3001:3000"]
+    # Uncomment alongside the OIDC block above to make `localhost` (and
+    # therefore OIDC_ISSUER=http://localhost:8180/...) resolve from
+    # *inside* this container the same way it does from the host browser.
+    # extra_hosts: ["localhost:host-gateway"]
     depends_on:
       mysql: { condition: service_healthy }
       api: { condition: service_healthy }
