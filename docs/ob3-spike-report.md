@@ -157,6 +157,49 @@ no fallback to a bare HTTPS key URL is needed.**
    signature verification succeeded end-to-end against a real, independent,
    public validator.
 
+### Nature de la preuve
+
+Post-review check: the `cloudflared` session log (kept in the session
+scratchpad for the duration of the spike) still existed when this was
+checked, so it was grepped directly for evidence of an inbound request —
+`grep -i "did.json\|GET\|request"` against the full log. **No matching
+line exists.** `cloudflared` at its default log level (`INF`) logs tunnel
+lifecycle and connectivity events only (registration, connection curve
+negotiation, the pre-check table, graceful shutdown) — it does not emit a
+per-request access log of what gets proxied through the tunnel. The `api`
+container's own request logs were also checked and found unusable as
+corroboration: the container was restarted twice after the spike (first to
+regenerate the tunnel-scoped key, then again during cleanup to restore the
+localhost DID), and each restart discarded the previous run's stdout log
+buffer along with it. So there is no raw access-log line to cite here —
+the evidence for did:web resolution having actually occurred is
+cryptographic necessity, not a log line, and is presented as such rather
+than papered over:
+
+- The `eddsa-rdfc-2022` `DataIntegrityProof` on the tested credential can
+  only be verified against the Ed25519 public key named by its
+  `verificationMethod` (`did:web:systematic-magnitude-duke-ohio.trycloudflare.com#key-0`).
+- That public key existed in exactly one place reachable from the public
+  internet during the spike window: the tunnel-scoped `did.json`, served
+  live by the `api` container through the `cloudflared` tunnel. It was
+  never embedded in the credential itself, never pasted into the validator
+  UI, and had no other public copy anywhere.
+- vc.1ed.tech is a stock, independent 1EdTech Open Badges 3.0 conformance
+  validator — the credential submitted to it was the JSON payload only; it
+  supplies no side channel for a verifier to obtain a `verificationMethod`'s
+  public key other than dereferencing the DID.
+- The validator's report shows the proof check among its 14 tests, all
+  passing, with **0 tests not run** (not skipped, not inconclusive) and 0
+  exceptions.
+
+  A verifier cannot report a passing signature check, rather than an
+  exception or a skipped test, without first having resolved
+  `did:web:systematic-magnitude-duke-ohio.trycloudflare.com` to the public
+  key that made the check pass. There is no other route by which the
+  reported result could have been produced. This is offered as the
+  controller-approved fallback form of evidence in place of a literal
+  access-log line, per the review's Important finding #1.
+
 ## THE EXIT-CRITERION DECISION
 
 Per spec §D3's stated criterion: *"if did:web resolution fails, switch
