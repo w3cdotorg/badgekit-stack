@@ -519,12 +519,17 @@ Toutes consultées le 2026-08-19 :
 
 ## 11. Questions ouvertes pour la relecture
 
-1. D2 : ok pour renoncer à VC-JWT en v1 malgré la simplicité de `jose`, au vu des exigences de la
-   suite de conformité ?
-2. D3 : le domaine public cible pour `did:web` (et donc l'URL canonique des credentials) — lequel ?
-3. §5.3 : persister le credential signé en base (recommandé) vs re-signer à chaque GET — un avis
-   contraire ?
-4. Révocation (§9) : valider la réservation `credentialStatus` dès la v1 (option (a), recommandée) —
-   ou assumer explicitement que les credentials v1 sont **irrévocables à vie** (option (b)) ?
-   Différer sans réserver n'est pas une option neutre.
-5. Faut-il corriger le bug d'URL d'image (§2.3.5) dans une PR séparée avant l'étape 2 ?
+Relecture faite le 2026-08-19 (willow). Décisions :
+
+1. D2 (renoncer à VC-JWT en v1) : **VALIDÉ.**
+2. D3 — domaine public cible pour `did:web` : **EN ATTENTE.** Seule question encore ouverte ; elle
+   ne bloque que la première émission réelle (étape 4) — le spike de l'étape 1 utilise un domaine de
+   test jetable. Rappel de l'enjeu : le domaine est gravé dans `issuer.id` de chaque credential
+   signé ; la rotation de clé est prévue, la rotation de domaine n'existe pas (l'ancien domaine doit
+   servir le did.json à vie, sinon les badges antérieurs deviennent invérifiables). Critères :
+   pérennité DNS, neutralité de marque, port 443 standard, un domaine = une identité de signature.
+3. §5.3 — persister le credential signé en base : **VALIDÉ** (recommandation suivie).
+4. Révocation — réservation `credentialStatus` dès la v1 (option (a)) : **VALIDÉ.**
+5. Bug d'URL d'image (§2.3.5) : **FAIT** — corrigé et mergé indépendamment de cette spec
+   (w3cdotorg/badgekit-api#5, `Image.toUrl()` + `makeBadgeClass()`, avec test rouge→vert pinnant
+   l'URL publique).
