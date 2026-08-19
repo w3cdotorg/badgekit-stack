@@ -41,6 +41,17 @@ services:
       # dev issuer key" section.
       ISSUER_DID: ${ISSUER_DID:-}
       ISSUER_SIGNING_KEY: ${ISSUER_SIGNING_KEY:-}
+      # PUBLIC_BASE_URL is now MANDATORY for signing (Task 7/8 critical fix):
+      # every URL baked into a signed credential (credential.id,
+      # achievement.id, credentialStatus.statusListCredential, the status
+      # list credential's own id) must come from this operator-controlled
+      # value, never from the client-controlled Host header. If unset while
+      # ISSUER_SIGNING_KEY/ISSUER_DID ARE set, /public/credentials/* returns
+      # 503 {code:'SigningNotConfigured'} naming PUBLIC_BASE_URL explicitly.
+      # Defaults to localhost for the dev stack; override to the disposable
+      # cloudflared tunnel hostname for external-validator testing (see
+      # README's "OB 3.0 dev issuer key" / docs/ob3-validation-report.md).
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
     ports: ["8080:8080"]
     depends_on:
       mysql: { condition: service_healthy }

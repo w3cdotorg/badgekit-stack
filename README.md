@@ -132,12 +132,23 @@ matches it, so this flow works unmodified.
 ## OB 3.0 dev issuer key
 
 The `api` service's Open Badges 3.0 signing routes (`/.well-known/did.json`,
-later `/public/credentials/*`) are unconfigured by default — they respond
+`/public/credentials/*`) are unconfigured by default — they respond
 `503 {code:'SigningNotConfigured'}` until `ISSUER_DID` / `ISSUER_SIGNING_KEY`
-are set. The rest of the API (all 1.x routes) works identically either way.
-The key is never stored in the database, never baked into the image, and
-never committed — it only ever lives in a gitignored `.env` in this
-directory, which `docker compose` reads automatically.
+**and** `PUBLIC_BASE_URL` are all set. The rest of the API (all 1.x routes)
+works identically either way. The key is never stored in the database, never
+baked into the image, and never committed — it only ever lives in a
+gitignored `.env` in this directory, which `docker compose` reads
+automatically.
+
+`PUBLIC_BASE_URL` is **mandatory** whenever signing is configured — every URL
+baked into a signed document (`credential.id`, `achievement.id`,
+`credentialStatus.statusListCredential`, the status list credential's own
+`id`) must come from this one operator-controlled value, never from the
+client-controlled `Host` header (an early version derived it from the
+request and was fixed — see `docs/ob3-validation-report.md`). `compose.yaml`
+defaults it to `http://localhost:8080` for the dev stack; override it (via
+`.env` or an env override) whenever `ISSUER_DID`/`ISSUER_SIGNING_KEY` target
+a different host, e.g. a tunnel — see "External validation" below.
 
 Generate a dev key and wire it up:
 
@@ -155,11 +166,65 @@ disposable `cloudflared` tunnel hostname for external-validator testing
 
 ```sh
 ./gen-dev-key.sh 'did:web:<random>.trycloudflare.com'
+echo 'PUBLIC_BASE_URL=https://<random>.trycloudflare.com' >> .env
 docker compose up -d --build api
 ```
 
 Per the project's test-domain-only policy, never point `ISSUER_DID` at a
 real/production domain from this dev stack.
+
+### Issuing a demo credential
+
+Once a dev key is wired up (above), issue a real signed credential through
+the API's ordinary auth (a `master`-key signed JWT, the same pattern
+`seed.sh` uses for system creation — no code changes needed):
+
+```sh
+# 1. Create a badge (image can be any syntactically valid URL — it's stored
+#    as a reference, never fetched by the signer).
+BODY='{"slug":"ob3-demo","name":"OB3 Demo Badge","earnerDescription":"Demo badge for OB3 credential issuance.","consumerDescription":"Demo badge for OB3 credential issuance.","unique":0,"type":"Badge Type","imageUrl":"http://localhost:8080/public/images/demo.png","criteriaUrl":"http://localhost:8080/criteria/ob3-demo"}'
+TOKEN=$(docker compose exec -T api node -e "
+const jws = require('jws'); const crypto = require('crypto');
+const body = process.argv[1];
+const hash = crypto.createHash('sha256').update(body).digest('hex');
+console.log(jws.sign({header:{typ:'JWT',alg:'HS256'},
+  payload:{key:'master',exp:(Date.now()/1000|0)+300,method:'POST',path:'/systems/wooclap/badges',
+           body:{alg:'sha256',hash:hash}},
+  secret:process.env.MASTER_SECRET}));" "$BODY")
+curl -s -X POST -H "Authorization: JWT token=\"$TOKEN\"" -H "Content-Type: application/json" \
+  -d "$BODY" http://localhost:8080/systems/wooclap/badges
+
+# 2. Award it to a recipient (only `email` is required).
+BODY='{"email":"demo-recipient@example.org"}'
+TOKEN=$(docker compose exec -T api node -e "
+const jws = require('jws'); const crypto = require('crypto');
+const body = process.argv[1];
+const hash = crypto.createHash('sha256').update(body).digest('hex');
+console.log(jws.sign({header:{typ:'JWT',alg:'HS256'},
+  payload:{key:'master',exp:(Date.now()/1000|0)+300,method:'POST',path:'/systems/wooclap/badges/ob3-demo/instances',
+           body:{alg:'sha256',hash:hash}},
+  secret:process.env.MASTER_SECRET}));" "$BODY")
+curl -s -X POST -H "Authorization: JWT token=\"$TOKEN\"" -H "Content-Type: application/json" \
+  -d "$BODY" http://localhost:8080/systems/wooclap/badges/ob3-demo/instances
+# -> {"status":"created","instance":{... "credentialUrl":"http://localhost:8080/public/credentials/<slug>", ...}}
+
+# 3. Fetch the signed credential (lazily signed + persisted on first GET).
+curl -s http://localhost:8080/public/credentials/<slug>
+```
+
+### External validation
+
+`docs/ob3-validation-report.md` records a full external-validator run: a
+disposable `cloudflared` tunnel, a badge + instance issued exactly as above
+(against the tunnel's `did:web`/`PUBLIC_BASE_URL`), the resulting credential
+GET **through the tunnel**, and its submission to the public
+[vc.1ed.tech](https://vc.1ed.tech) Open Badges 3.0 Verifier — verdict, review
+checklist results (status-list `id` consistency, `Accept:
+application/vc+ld+json` support, the inline `@context` on
+`credentialSchema[0]` workaround), and a screenshot. **This used a throwaway
+`trycloudflare.com` domain only — real issuance awaits the Q2 domain
+decision (see `docs/ob3-migration-spec.md`); the tunnel and its key were torn
+down immediately after.**
 
 ## Points d'attention
 
