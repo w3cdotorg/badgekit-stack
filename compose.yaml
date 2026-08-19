@@ -1,4 +1,14 @@
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    ports: ["8180:8080"]
+
   mysql:
     image: mysql:8.0
     command: --default-authentication-plugin=mysql_native_password
@@ -37,13 +47,19 @@ services:
       OPENBADGER_URL: http://api:8080
       BADGEKIT_API_URL: http://api:8080
       OPENBADGER_SYSTEM: wooclap
-      ACCESS_LIST: '["*"]'
+      ACCESS_LIST: '["*@wooclap.com"]'
       API_SECRET: dev-api-secret
       PERSONA_AUDIENCE: http://localhost:3001
+      AUTH_MODE: oidc
+      OIDC_ISSUER: http://localhost:8180/realms/badgekit
+      OIDC_CLIENT_ID: badgekit-web
+      OIDC_CLIENT_SECRET: ZrtXW6GRXZSquN6cN1QURy5Lu7g6dpJk
+      OIDC_REDIRECT_URI: http://localhost:3001/auth/callback
     ports: ["3001:3000"]
     depends_on:
       mysql: { condition: service_healthy }
       api: { condition: service_healthy }
+      keycloak: { condition: service_started }
 
 volumes:
   mysql-data:
