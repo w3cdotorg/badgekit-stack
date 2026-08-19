@@ -32,6 +32,15 @@ services:
       DB_PASSWORD: badges
       DB_NAME: badgekit
       MASTER_SECRET: devsecret
+      # OB 3.0 issuer signing key — unset by default (dev/prod both stay
+      # 100% functional for the 1.x routes without it; /.well-known/did.json
+      # and /public/credentials/* respond 503 SigningNotConfigured until
+      # set). Populate via ./gen-dev-key.sh, which writes both into .env
+      # (gitignored, read automatically by `docker compose` from this
+      # directory) — never commit real values here. See README's "OB 3.0
+      # dev issuer key" section.
+      ISSUER_DID: ${ISSUER_DID:-}
+      ISSUER_SIGNING_KEY: ${ISSUER_SIGNING_KEY:-}
     ports: ["8080:8080"]
     depends_on:
       mysql: { condition: service_healthy }

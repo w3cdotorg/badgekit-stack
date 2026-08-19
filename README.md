@@ -129,6 +129,38 @@ was actually reset, not just the UI.
 `ACCESS_LIST` is locked to `'["*@wooclap.com"]'` (see below) — `dev@wooclap.com`
 matches it, so this flow works unmodified.
 
+## OB 3.0 dev issuer key
+
+The `api` service's Open Badges 3.0 signing routes (`/.well-known/did.json`,
+later `/public/credentials/*`) are unconfigured by default — they respond
+`503 {code:'SigningNotConfigured'}` until `ISSUER_DID` / `ISSUER_SIGNING_KEY`
+are set. The rest of the API (all 1.x routes) works identically either way.
+The key is never stored in the database, never baked into the image, and
+never committed — it only ever lives in a gitignored `.env` in this
+directory, which `docker compose` reads automatically.
+
+Generate a dev key and wire it up:
+
+```sh
+./gen-dev-key.sh                       # defaults to did:web:localhost%3A8080
+docker compose up -d --build api
+curl -s http://localhost:8080/.well-known/did.json   # -> 200 with the dev key
+```
+
+Re-running `./gen-dev-key.sh` rotates the key (idempotent — it replaces the
+previous `ISSUER_DID`/`ISSUER_SIGNING_KEY` lines in `.env` rather than
+appending duplicates). Pass a DID to target a different domain, e.g. a
+disposable `cloudflared` tunnel hostname for external-validator testing
+(see `docs/ob3-spike-report.md`):
+
+```sh
+./gen-dev-key.sh 'did:web:<random>.trycloudflare.com'
+docker compose up -d --build api
+```
+
+Per the project's test-domain-only policy, never point `ISSUER_DID` at a
+real/production domain from this dev stack.
+
 ## Points d'attention
 
 - `streamsql` (abandoned Mozilla ORM) is vendored in `vendor/streamsql` in
