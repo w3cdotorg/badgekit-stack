@@ -67,3 +67,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/    # -> 200
 - The driver `mysql` (2.x) doesn't support `caching_sha2_password`, hence
   `--default-authentication-plugin=mysql_native_password` on the MySQL
   service and `mysql_native_password` users in `init.sql`.
+- `badgekit_web_test` is the front's (`openbadges-badgekit`) test database:
+  its mocha suite DROPs and re-CREATEs it on every run, so `init.sql` grants
+  `badgekit` full privileges on it up front (database-level grants survive
+  the suite's DROP/CREATE cycle).
